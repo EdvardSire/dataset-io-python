@@ -1,5 +1,5 @@
 from pathlib import Path
-from dataset_io import ShmDataset
+from shm_dataset_io import ShmDataset
 
 
 if __name__ == "__main__":

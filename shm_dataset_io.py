@@ -1,3 +1,28 @@
+"""shared memory dataset io"""
+
+__shm_dataset_io_version__ = "0.1.0"
+
+"""
+decode and load a directory of images into shared memory
+
+the consumer only needs to know the filepath, len and shape is metadata in shm 
+
+server usage:
+    ShmDataset.load_from_path(Path("/home/user/datasets/UAV_VisLoc_dataset/04/drone"))
+
+consumer usage:
+    sdc = ShmDatasetConsumer(Path("/home/user/datasets/UAV_VisLoc_dataset/04/drone"))
+    ms, n, h, w, c = struct.unpack_from("5i", sdc._shm.buf)
+    print(f"{n} images of: {h}x{w}x{c}")
+    cv2.imshow("", sdc.data[0]); cv2.waitKey(0)
+    sdc.cleanup()
+
+notes:
+    all images must be same size
+
+"""
+
+
 import os, sys, gc, struct, threading
 from pathlib import Path
 from hashlib import sha256
@@ -35,9 +60,9 @@ class ShmDataset():
         shm = SharedMemory(create=True, size=slab_size_bytes, name=shm_name)
         struct.pack_into('i', shm.buf, 0, sd.metadata_size())
         shm.buf[4:4+(4*4)] = struct.pack('4i', n, h, w, c)
+        arr = np.ndarray((n, h, w, c), dtype=datatype, buffer=shm.buf, offset=sd.metadata_size())
         gc.collect()
 
-        arr = np.ndarray((n, h, w, c), dtype=datatype, buffer=shm.buf, offset=sd.metadata_size())
         for i, image_path in enumerate(image_paths):
             img = cv2.imread(image_path.__str__())
 
@@ -46,7 +71,7 @@ class ShmDataset():
             arr[i] = img  
 
         try:
-            print(f"Spinning with allocated slab: {shm_name} ; size {slab_size_bytes/b2gb:.2f} GB")
+            print(f"Spinning with slab: {shm_name} ; size {slab_size_bytes/b2gb:.2f} GB")
             while True:
                 pass
         except KeyboardInterrupt:
