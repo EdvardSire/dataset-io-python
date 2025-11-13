@@ -1,6 +1,6 @@
 """shared memory dataset io"""
 
-__shm_dataset_io_version__ = "0.1.0"
+__shm_dataset_io_version__ = "0.1.1"
 
 """
 decode and load a directory of images into shared memory
@@ -23,7 +23,7 @@ notes:
 """
 
 
-import os, sys, gc, struct, threading
+import os, sys, gc, struct, threading, time
 from pathlib import Path
 from hashlib import sha256
 from multiprocessing import resource_tracker as _mprt
@@ -73,7 +73,7 @@ class ShmDataset():
         try:
             print(f"Spinning with slab: {shm_name} ; size {slab_size_bytes/b2gb:.2f} GB")
             while True:
-                pass
+                time.sleep(1)
         except KeyboardInterrupt:
             shm.close()
             shm.unlink()
