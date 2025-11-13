@@ -1,12 +1,27 @@
+import os, gc, struct
 from pathlib import Path
-from multiprocessing import shared_memory
 from hashlib import sha256
-import gc, os, struct
 
 import numpy as np
 import cv2
 
+from compat import SharedMemory
+
+
 b2gb = 1024**3
+
+
+class ShmDatasetConsumer():
+    def __init__(self, image_dir: Path):
+        shm_name = sha256(image_dir.home().__str__().encode()).hexdigest()
+        self._shm = SharedMemory(name=shm_name, create=False, track=False)
+        ms, n, h, w, c = struct.unpack_from('5i', self._shm.buf, offset=0)
+        self.data =  np.frombuffer(self._shm.buf, dtype=np.uint8, offset=ms).reshape((n, h, w, c))
+
+    def cleanup(self):
+        del self.data
+        self._shm.close()
+
 
 class ShmDataset():
     @staticmethod
@@ -17,7 +32,7 @@ class ShmDataset():
         n, h, w, c, datatype = sd.profile_dataset(image_paths)
         slab_size_bytes = n*h*w*c*np.dtype(datatype).itemsize + sd.metadata_size()
         sd.assert_feasible_allocation(slab_size_bytes)
-        shm = shared_memory.SharedMemory(create=True, size=slab_size_bytes, name=shm_name)
+        shm = SharedMemory(create=True, size=slab_size_bytes, name=shm_name)
         struct.pack_into('i', shm.buf, 0, sd.metadata_size())
         shm.buf[4:4+(4*4)] = struct.pack('4i', n, h, w, c)
         gc.collect()
