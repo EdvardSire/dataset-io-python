@@ -1,11 +1,11 @@
-import os, gc, struct
+import os, sys, gc, struct, threading
 from pathlib import Path
 from hashlib import sha256
+from multiprocessing import resource_tracker as _mprt
+from multiprocessing import shared_memory as _mpshm
 
 import numpy as np
-import cv2
-
-from compat import SharedMemory
+import cv2 
 
 
 b2gb = 1024**3
@@ -40,6 +40,7 @@ class ShmDataset():
         arr = np.ndarray((n, h, w, c), dtype=datatype, buffer=shm.buf, offset=sd.metadata_size())
         for i, image_path in enumerate(image_paths):
             img = cv2.imread(image_path.__str__())
+
             if img.shape != (h, w, c):
                 raise ValueError(f"Image {image_path} has unexpected shape {img.shape}")
             arr[i] = img  
@@ -103,3 +104,45 @@ class ShmDataset():
                                        needed/avail/shm-limit {needed_bytes/b2gb:.2f}/{avail_system_bytes/b2gb:.2f}/{shm_limit_bytes/b2gb:.2f} GB""")
         print(f"Memory pressure: {pressure:.2f}")
         return
+
+
+# https://github.com/python/cpython/issues/82300#issuecomment-2169035092
+if sys.version_info >= (3, 13):
+    SharedMemory = _mpshm.SharedMemory
+else:
+    class SharedMemory(_mpshm.SharedMemory):
+        __lock = threading.Lock()
+
+        def __init__(
+            self, name: str | None = None, create: bool = False,
+            size: int = 0, *, track: bool = True
+        ) -> None:
+            self._track = track
+
+            # if tracking, normal init will suffice
+            if track:
+                return super().__init__(name=name, create=create, size=size)
+
+            # lock so that other threads don't attempt to use the
+            # register function during this time
+            with self.__lock:
+                # temporarily disable registration during initialization
+                orig_register = _mprt.register
+                _mprt.register = self.__tmp_register
+
+                # initialize; ensure original register function is
+                # re-instated
+                try:
+                    super().__init__(name=name, create=create, size=size)
+                finally:
+                    _mprt.register = orig_register
+
+        @staticmethod
+        def __tmp_register(*args, **kwargs) -> None:
+            return
+
+        def unlink(self) -> None:
+            if _mpshm._USE_POSIX and self._name:
+                _mpshm._posixshmem.shm_unlink(self._name)
+                if self._track:
+                    _mprt.unregister(self._name, "shared_memory")
